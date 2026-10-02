@@ -1,0 +1,263 @@
+format_version: 1
+source:
+  database_name: Northwind
+  server_name: .\SQLEXPRESS
+  login_name: Windows integrated authentication
+
+# Capa semántica de Northwind. Las expresiones usan los importes almacenados en
+# [Order Details]; no convierten monedas ni imputan impuestos o costes de envío.
+metrics:
+  gross_sales:
+    description: Importe bruto vendido antes del descuento de línea.
+    expression: SUM([Order Details].[UnitPrice] * [Order Details].[Quantity])
+    format: currency
+    grain: Una línea de pedido.
+    source_objects: ['[dbo].[Order Details]']
+    dimensions: [order_date, customer, employee, product, category, supplier, ship_country]
+  discount_amount:
+    description: Importe concedido como descuento en las líneas de pedido.
+    expression: SUM([Order Details].[UnitPrice] * [Order Details].[Quantity] * [Order Details].[Discount])
+    format: currency
+    grain: Una línea de pedido.
+    source_objects: ['[dbo].[Order Details]']
+    caveats: Discount es una proporción entre 0 y 1, no un importe.
+  net_sales:
+    description: Venta neta después del descuento de línea, sin flete, impuestos ni devoluciones.
+    expression: SUM([Order Details].[UnitPrice] * [Order Details].[Quantity] * (1 - [Order Details].[Discount]))
+    format: currency
+    grain: Una línea de pedido.
+    source_objects: ['[dbo].[Order Details]', '[dbo].[Orders]']
+    date_field: '[dbo].[Orders].[OrderDate]'
+    caveats: Usa el precio histórico de la línea y no Products.UnitPrice, que es el precio actual.
+  units_sold:
+    description: Número de unidades incluidas en pedidos, independientemente del descuento.
+    expression: SUM([Order Details].[Quantity])
+    format: integer
+    grain: Una línea de pedido.
+    source_objects: ['[dbo].[Order Details]']
+  order_count:
+    description: Cantidad de pedidos únicos.
+    expression: COUNT(DISTINCT [Orders].[OrderID])
+    format: integer
+    grain: Un pedido.
+    source_objects: ['[dbo].[Orders]']
+  average_order_value:
+    description: Venta neta promedio por pedido.
+    expression: net_sales / NULLIF(order_count, 0)
+    format: currency
+    grain: Un pedido.
+    source_objects: ['[dbo].[Orders]', '[dbo].[Order Details]']
+  average_discount_rate:
+    description: Proporción de descuento ponderada por el importe bruto de cada línea.
+    expression: discount_amount / NULLIF(gross_sales, 0)
+    format: percentage
+    grain: Una línea de pedido.
+    source_objects: ['[dbo].[Order Details]']
+  freight_amount:
+    description: Flete registrado en los pedidos; no forma parte de net_sales.
+    expression: SUM([Orders].[Freight])
+    format: currency
+    grain: Un pedido.
+    source_objects: ['[dbo].[Orders]']
+  shipped_order_count:
+    description: Cantidad de pedidos con fecha de envío informada.
+    expression: COUNT(DISTINCT CASE WHEN [Orders].[ShippedDate] IS NOT NULL THEN [Orders].[OrderID] END)
+    format: integer
+    grain: Un pedido.
+    source_objects: ['[dbo].[Orders]']
+  on_time_shipment_rate:
+    description: Porcentaje de pedidos enviados en la fecha requerida o antes.
+    expression: SUM(CASE WHEN [Orders].[ShippedDate] <= [Orders].[RequiredDate] THEN 1.0 ELSE 0 END) / NULLIF(SUM(CASE WHEN [Orders].[ShippedDate] IS NOT NULL THEN 1.0 ELSE 0 END), 0)
+    format: percentage
+    grain: Un pedido enviado.
+    source_objects: ['[dbo].[Orders]']
+    caveats: Excluye pedidos todavía no enviados del denominador.
+  active_product_count:
+    description: Cantidad de productos que no están descontinuados.
+    expression: COUNT(DISTINCT CASE WHEN [Products].[Discontinued] = 0 THEN [Products].[ProductID] END)
+    format: integer
+    grain: Un producto.
+    source_objects: ['[dbo].[Products]']
+  inventory_units:
+    description: Unidades actualmente registradas en inventario.
+    expression: SUM([Products].[UnitsInStock])
+    format: integer
+    grain: Un producto.
+    source_objects: ['[dbo].[Products]']
+
+objects:
+  '[dbo].[Categories]':
+    description: Catálogo de categorías comerciales de productos, con nombre, descripción e imagen.
+    role: dimension
+    grain: Una fila por categoría (CategoryID).
+    keywords: [categoría, familia, producto]
+    notes: Picture es un objeto binario y no debe usarse como dimensión analítica.
+  '[dbo].[CustomerCustomerDemo]':
+    description: Asociación de muchos a muchos entre clientes y segmentos demográficos.
+    role: bridge
+    grain: Una fila por combinación CustomerID y CustomerTypeID.
+    keywords: [cliente, segmento, demografía]
+    notes: Usar para filtrar clientes por CustomerDemographics; evitar multiplicar ventas al unir varios segmentos.
+  '[dbo].[CustomerDemographics]':
+    description: Catálogo de tipos o segmentos demográficos asignables a clientes.
+    role: dimension
+    grain: Una fila por tipo de cliente (CustomerTypeID).
+    keywords: [cliente, segmento, demografía]
+    notes: CustomerDesc contiene la descripción libre del segmento.
+  '[dbo].[Customers]':
+    description: Maestro de clientes y sus datos de contacto y ubicación.
+    role: dimension
+    grain: Una fila por cliente (CustomerID).
+    keywords: [cliente, compañía, contacto, ciudad, país]
+    notes: Unir Orders por CustomerID; Region y PostalCode pueden ser nulos.
+  '[dbo].[Employees]':
+    description: Maestro de empleados que atienden pedidos, incluida jerarquía, contacto y territorio personal.
+    role: dimension
+    grain: Una fila por empleado (EmployeeID).
+    keywords: [empleado, vendedor, responsable, jefe]
+    notes: ReportsTo referencia a otro EmployeeID; Photo es binario y Notes es texto libre.
+  '[dbo].[EmployeeTerritories]':
+    description: Asociación de muchos a muchos entre empleados y territorios comerciales.
+    role: bridge
+    grain: Una fila por combinación EmployeeID y TerritoryID.
+    keywords: [empleado, vendedor, territorio]
+    notes: No unir directamente con ventas sin controlar la duplicación provocada por empleados con varios territorios.
+  '[dbo].[Order Details]':
+    description: Líneas de los pedidos con producto, precio histórico, cantidad y descuento aplicado.
+    role: fact
+    grain: Una fila por combinación OrderID y ProductID.
+    keywords: [venta, línea, pedido, producto, cantidad, descuento, importe]
+    notes: Tabla base para ventas; UnitPrice es el precio al momento del pedido y Discount es una proporción.
+  '[dbo].[Orders]':
+    description: Cabecera de pedidos con cliente, empleado, transportista, fechas, flete y destino de entrega.
+    role: fact
+    grain: Una fila por pedido (OrderID).
+    keywords: [pedido, venta, cliente, fecha, envío, flete]
+    notes: OrderDate mide captación; ShippedDate mide despacho. ShipVia referencia Shippers.ShipperID.
+  '[dbo].[Products]':
+    description: Maestro y estado actual de productos, proveedor, categoría, precio e inventario.
+    role: dimension
+    grain: Una fila por producto (ProductID).
+    keywords: [producto, precio, inventario, stock, proveedor, categoría]
+    notes: UnitPrice es el precio actual; para ventas históricas usar Order Details.UnitPrice. Discontinued indica baja comercial.
+  '[dbo].[Region]':
+    description: Catálogo de regiones que agrupan territorios comerciales.
+    role: dimension
+    grain: Una fila por región (RegionID).
+    keywords: [región, territorio, geografía]
+    notes: No equivale a Customers.Region ni Orders.ShipRegion, que son textos de dirección.
+  '[dbo].[Shippers]':
+    description: Catálogo de empresas transportistas utilizadas para enviar pedidos.
+    role: dimension
+    grain: Una fila por transportista (ShipperID).
+    keywords: [transportista, envío, logística]
+    notes: Unir con Orders mediante Orders.ShipVia.
+  '[dbo].[Suppliers]':
+    description: Maestro de proveedores, sus contactos y ubicación.
+    role: dimension
+    grain: Una fila por proveedor (SupplierID).
+    keywords: [proveedor, compañía, contacto, país]
+    notes: Unir con Products por SupplierID; no representa compras ni costes históricos.
+  '[dbo].[Territories]':
+    description: Catálogo de territorios comerciales pertenecientes a una región.
+    role: dimension
+    grain: Una fila por territorio (TerritoryID).
+    keywords: [territorio, región, geografía, ventas]
+    notes: Se relaciona con empleados mediante EmployeeTerritories, no directamente con clientes o pedidos.
+
+  '[dbo].[Alphabetical list of products]':
+    description: Vista de productos vigentes con sus categorías, ordenable alfabéticamente.
+    role: reporting_view
+    grain: Una fila por producto no descontinuado.
+    keywords: [producto, categoría, catálogo, vigente]
+    notes: Vista derivada; para lógica reutilizable preferir Products y Categories.
+  '[dbo].[Category Sales for 1997]':
+    description: Venta neta agregada por categoría para pedidos de 1997.
+    role: aggregate_view
+    grain: Una fila por categoría con ventas en 1997.
+    keywords: [ventas, categoría, 1997]
+    notes: Periodo fijo; no usar para otros años ni sumar con detalle de ventas.
+  '[dbo].[Current Product List]':
+    description: Lista simplificada de productos actualmente no descontinuados.
+    role: reporting_view
+    grain: Una fila por producto vigente.
+    keywords: [producto, catálogo, vigente]
+    notes: Vista derivada y limitada; Products contiene el maestro completo.
+  '[dbo].[Customer and Suppliers by City]':
+    description: Vista unificada de clientes y proveedores con ciudad, compañía y contacto.
+    role: reporting_view
+    grain: Una fila por organización y tipo en una ciudad.
+    keywords: [cliente, proveedor, ciudad, contacto]
+    notes: El campo Relationship distingue Customers de Suppliers; identificadores no están expuestos.
+  '[dbo].[Invoices]':
+    description: Vista detallada para facturación que combina pedidos, líneas, clientes, productos, empleados y transportistas.
+    role: reporting_view
+    grain: Una fila por línea de pedido.
+    keywords: [factura, pedido, cliente, producto, vendedor, transportista, importe]
+    notes: ExtendedPrice refleja el importe neto de línea; no existe una entidad contable de factura independiente.
+  '[dbo].[Order Details Extended]':
+    description: Líneas de pedido enriquecidas con nombre de producto e importe neto calculado.
+    role: reporting_view
+    grain: Una fila por combinación OrderID y ProductID.
+    keywords: [venta, línea, pedido, producto, descuento, importe]
+    notes: ExtendedPrice es UnitPrice por Quantity después del descuento, redondeado por la definición de la vista.
+  '[dbo].[Order Subtotals]':
+    description: Venta neta agregada de las líneas de cada pedido.
+    role: aggregate_view
+    grain: Una fila por pedido (OrderID).
+    keywords: [pedido, subtotal, venta neta]
+    notes: Subtotal no incluye Freight; no volver a unir a detalle para sumar sin controlar duplicados.
+  '[dbo].[Orders Qry]':
+    description: Pedidos enriquecidos con el nombre y dirección del cliente.
+    role: reporting_view
+    grain: Una fila por pedido (OrderID).
+    keywords: [pedido, cliente, envío, dirección]
+    notes: Vista derivada de Orders y Customers; conserva también la dirección Ship* del pedido.
+  '[dbo].[Product Sales for 1997]':
+    description: Venta neta agregada por categoría y producto para pedidos de 1997.
+    role: aggregate_view
+    grain: Una fila por combinación de categoría y producto con ventas en 1997.
+    keywords: [ventas, producto, categoría, 1997]
+    notes: Periodo fijo; ProductSales ya está agregado.
+  '[dbo].[Products Above Average Price]':
+    description: Productos cuyo precio de lista actual supera el promedio actual del catálogo.
+    role: reporting_view
+    grain: Una fila por producto por encima del promedio.
+    keywords: [producto, precio, promedio]
+    notes: Compara precios actuales, no precios históricos de venta.
+  '[dbo].[Products by Category]':
+    description: Productos vigentes enriquecidos con categoría, proveedor e inventario.
+    role: reporting_view
+    grain: Una fila por producto no descontinuado.
+    keywords: [producto, categoría, proveedor, inventario]
+    notes: Vista derivada del catálogo actual; no contiene ventas.
+  '[dbo].[Quarterly Orders]':
+    description: Combinaciones de cliente y pedido utilizadas para análisis trimestral de pedidos de 1997.
+    role: reporting_view
+    grain: Una fila por pedido del periodo definido en la vista.
+    keywords: [pedido, cliente, trimestre, 1997]
+    notes: Periodo fijo en la definición original de Northwind.
+  '[dbo].[Sales by Category]':
+    description: Venta neta por categoría y producto para un año indicado por la lógica de la vista.
+    role: aggregate_view
+    grain: Una fila por categoría, producto y año de pedido con ventas.
+    keywords: [ventas, categoría, producto, año]
+    notes: ProductSales ya está agregado; revisar el campo OrdYear antes de filtrar el periodo.
+  '[dbo].[Sales Totals by Amount]':
+    description: Pedidos con subtotal superior al umbral definido por la vista para un periodo concreto.
+    role: reporting_view
+    grain: Una fila por pedido que cumple el umbral y periodo.
+    keywords: [ventas, pedido, subtotal, cliente]
+    notes: La definición original filtra por importe y fechas fijas; no representa todos los pedidos.
+  '[dbo].[Summary of Sales by Quarter]':
+    description: Resumen por pedido enviado con subtotal, agrupable por trimestre de envío.
+    role: aggregate_view
+    grain: Una fila por pedido enviado.
+    keywords: [ventas, pedido, trimestre, envío, subtotal]
+    notes: Usa ShippedDate y excluye implícitamente pedidos sin envío al analizar periodos.
+  '[dbo].[Summary of Sales by Year]':
+    description: Resumen por pedido enviado con subtotal, agrupable por año de envío.
+    role: aggregate_view
+    grain: Una fila por pedido enviado.
+    keywords: [ventas, pedido, año, envío, subtotal]
+    notes: Usa ShippedDate, no OrderDate; Subtotal no incluye Freight.
