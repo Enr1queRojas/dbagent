@@ -1,0 +1,26 @@
+# Entornos virtuales (contienen rutas locales de tu equipo)
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Configuración local y secretos
+.env
+.env.*
+!.env.example
+config/*.local.yml
+
+# Catálogo generado desde la base real (puede incluir valores de muestra)
+schema/
+
+# Editor / sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

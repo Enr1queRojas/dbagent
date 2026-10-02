@@ -1,0 +1,11 @@
+database:
+  driver: ODBC Driver 17 for SQL Server
+  server: '.\SQLEXPRESS'
+  database: Northwind
+  trusted_connection: true
+  # Configuración para tu instancia local de desarrollo.
+  encrypt: false
+  trust_server_certificate: false
+  connection_timeout: 10
+  query_timeout: 30
+  max_rows: 1000
