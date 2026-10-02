@@ -1,0 +1,30 @@
+enabled: false
+allowed_objects: []
+allow_views: false
+limits:
+  max_sql_chars: 10000
+  max_ast_nodes: 500
+  max_joins: 8
+  max_subqueries: 8
+  max_ctes: 5
+allowed_functions:
+  - CASE
+  - COUNT
+  - SUM
+  - AVG
+  - MIN
+  - MAX
+  - COALESCE
+  - NULLIF
+  - UPPER
+  - LOWER
+  - LEN
+  - CONCAT
+  - CAST
+  - CONVERT
+  - DATEADD
+  - DATEDIFF
+  - YEAR
+  - MONTH
+  - DAY
+allowed_table_functions: []
