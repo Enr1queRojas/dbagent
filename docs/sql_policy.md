@@ -6,7 +6,7 @@ objetos. En ese estado toda validación devuelve `allowed=false` con una explica
 
 ## Activación
 
-1. Instale las dependencias fijadas: `pip install -r requirements-sql-validator.txt`.
+1. Instale las dependencias fijadas: `pip install -r requirements.txt`.
 2. Revise el catálogo y agregue cada tabla, con sus dos partes, a la lista explícita:
 
    ```yaml

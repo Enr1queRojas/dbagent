@@ -56,14 +56,26 @@ def normalize_response(response: Any) -> dict[str, Any]:
             "error": "No se pudo completar la solicitud.",
         }[status]
     data = raw.get("data")
+    if is_dataclass(data):
+        data = asdict(data)
+    elif hasattr(data, "model_dump"):
+        data = data.model_dump()
     if data is None and raw.get("rows") is not None:
         rows, columns = raw.get("rows"), raw.get("columns")
         data = [dict(zip(columns, row)) for row in rows] if columns else rows
     if not isinstance(data, (list, tuple, dict)) and data is not None:
         data = None
+    if isinstance(data, dict) and "columns" in data and "rows" in data:
+        data = {"columns": list(data["columns"]), "rows": list(data["rows"]),
+                "truncated": bool(data.get("truncated", False))}
+    truncated = bool(data.get("truncated")) if isinstance(data, dict) else bool(raw.get("truncated"))
+    plan = raw.get("plan")
+    if hasattr(plan, "model_dump"):
+        plan = plan.model_dump()
+    sql = raw.get("sql") or (plan.get("sql") if isinstance(plan, dict) else None)
     return {
-        "status": status, "message": message, "plan": raw.get("plan"),
-        "sql": raw.get("sql"), "data": data, "truncated": bool(raw.get("truncated")),
+        "status": status, "message": message, "plan": plan,
+        "sql": sql, "data": data, "truncated": truncated,
     }
 
 
@@ -97,22 +109,24 @@ def history_for_request(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
     return history
 
 
-def ask(backend: Any, question: str, history: list[dict[str, Any]], *, execute: bool) -> dict[str, Any]:
+def ask(backend: Any, question: str, history: list[dict[str, Any]], *, execute: bool,
+        prepared_plan: dict[str, Any] | None = None) -> dict[str, Any]:
     """Call the agreed backend contract. Exceptions are deliberately sanitized."""
     try:
-        return normalize_response(backend.handle({
-            "question": question, "history": history_for_request(history), "execute": execute,
-        }))
+        request = {"question": question, "history": history_for_request(history), "execute": execute}
+        if prepared_plan is not None:
+            request["prepared_plan"] = prepared_plan
+        return normalize_response(backend.handle(request))
     except Exception:
         return normalize_response({"status": "error", "message":
             "Ocurrió un problema al procesar la solicitud. Revisa la configuración e inténtalo de nuevo."})
 
 
-def load_report_tools() -> Any | None:
+def load_report_tools(output_dir: str | Path | None = None) -> Any | None:
     """Return optional reporting support without making it a UI prerequisite."""
     try:
         cls = getattr(importlib.import_module("tools.report_tools"), "ReportTools")
-        return cls()
+        return cls(output_dir=output_dir)
     except (ImportError, AttributeError):
         return None
 

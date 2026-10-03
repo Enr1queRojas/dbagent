@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from ui.backend import (IntegrationUnavailable, append_message, artifact_path, ask,
+from ui.backend import (IntegrationUnavailable, append_message, ask,
                         create_backend, init_session, load_report_tools,
                         reset_conversation)
 
@@ -52,10 +52,12 @@ def render_response(response: dict, index: int) -> None:
                 st.code(str(response["sql"]), language="sql")
     data = response.get("data")
     if data is not None:
-        st.dataframe(data, use_container_width=True)
+        table = ([dict(zip(data["columns"], row)) for row in data["rows"]]
+                 if isinstance(data, dict) and "columns" in data else data)
+        st.dataframe(table, use_container_width=True)
         if response.get("truncated"):
             st.warning("Se muestra solo una parte de los resultados porque fueron truncados.")
-        reports = load_report_tools()
+        reports = load_report_tools(st.session_state["artifact_dir"])
         if reports is None:
             st.caption("Exportaciones y gráficas no disponibles en esta instalación.")
         else:
@@ -64,19 +66,20 @@ def render_response(response: dict, index: int) -> None:
                 if st.button("Preparar descarga", key=f"export-{index}"):
                     try:
                         # The title is controlled by the app and rooted in this session's temp dir.
-                        title = str(artifact_path(st.session_state, "resultados"))
-                        artifact = reports.export(data, fmt, title)
-                        payload = artifact if isinstance(artifact, bytes) else __import__("pathlib").Path(artifact).read_bytes()
+                        artifact = reports.export(data, fmt, "resultados")
+                        payload = artifact.path.read_bytes()
                         st.download_button("Descargar", payload, file_name=f"resultados.{fmt}", key=f"dl-{index}")
                     except Exception:
                         st.error("No se pudo crear el archivo.")
-                columns = list(data[0]) if isinstance(data, list) and data and isinstance(data[0], dict) else []
+                columns = list(data.get("columns", [])) if isinstance(data, dict) else []
                 chart_type = st.selectbox("Tipo de gráfica", ["bar", "line", "scatter"], key=f"chart-type-{index}")
                 x = st.selectbox("Columna horizontal", columns, key=f"x-{index}", disabled=not columns)
                 y = st.selectbox("Columna de valores", columns, key=f"y-{index}", disabled=not columns)
                 if st.button("Crear gráfica", key=f"chart-{index}", disabled=not columns):
                     try:
-                        st.plotly_chart(reports.chart(data, {"type": chart_type, "x": x, "y": y}), use_container_width=True)
+                        artifact = reports.chart(data, {"kind": chart_type, "x": x, "y": y,
+                                                       "title": "resultados"})
+                        st.components.v1.html(artifact.path.read_text(encoding="utf-8"), height=600)
                     except Exception:
                         st.error("No se pudo crear la gráfica con esas columnas.")
 
@@ -94,7 +97,8 @@ if pending and pending["token"] not in st.session_state.executed_tokens:
         # Consume before calling: a rerun can never repeat this execution.
         st.session_state.executed_tokens.add(pending["token"])
         st.session_state.pending_execution = None
-        response = ask(st.session_state.backend, pending["question"], pending["history"], execute=True)
+        response = ask(st.session_state.backend, pending["question"], pending["history"], execute=True,
+                       prepared_plan=pending["plan"])
         append_message(st.session_state, {"role": "assistant", "content": response["message"], "response": response})
         st.rerun()
 
@@ -106,5 +110,7 @@ if question:
     response = ask(st.session_state.backend, question, previous, execute=False)
     append_message(st.session_state, {"role": "assistant", "content": response["message"], "response": response})
     if response["status"] == "planned":
-        st.session_state.pending_execution = {"question": question, "history": previous, "token": len(st.session_state.messages)}
+        st.session_state.pending_execution = {"question": question, "history": previous,
+                                               "plan": response["plan"],
+                                               "token": len(st.session_state.messages)}
     st.rerun()

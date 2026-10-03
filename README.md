@@ -1,84 +1,98 @@
-# Data Agents — base local con Ollama
+# dbagent — consultas locales con Ollama y SQL Server
 
-Python 3.10+. Modelo: `qwen3:30b-instruct` (MoE, aproximadamente 19 GB descargados).
+Aplicación para Python 3.10+ que recupera metadatos, genera T-SQL con Ollama,
+valida una política de lectura, ejecuta con límites, explica los resultados y
+permite exportarlos desde Streamlit.
 
-## Iniciar en Windows / PowerShell
+> **Seguro por defecto:** `config/sql_policy.yml` mantiene `enabled: false` y
+> `allowed_objects: []`. No lo habilites hasta comprobar una cuenta de SQL
+> Server con permisos exclusivamente de lectura y declarar cada objeto
+> permitido. La opción ODBC `readonly` no sustituye permisos en el servidor.
 
-Extrae el ZIP y abre una terminal en la carpeta `data_agents`.
-Instala y abre Ollama: https://ollama.com/download/windows
+## Instalación única (Windows / PowerShell)
+
+1. Instala Python 3.10 o posterior, Ollama y **Microsoft ODBC Driver 17 for SQL
+   Server**. Abre PowerShell en la raíz del repositorio.
+2. Crea el entorno e instala el único conjunto reproducible de dependencias:
 
 ```powershell
-ollama pull qwen3:30b-instruct
-python -m venv .venv
+py -3.10 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe main.py
+ollama pull qwen3:30b-instruct
 ```
 
-No necesitas activar el entorno. También puedes seleccionar `.venv` como intérprete en VS Code.
+No es necesario activar el entorno. Las versiones directas están fijadas en
+`requirements.txt`; ya no hay archivos de requisitos opcionales que puedan
+instalar combinaciones diferentes.
+
+## Configuración segura
+
+1. Revisa `config/database.yml` **sin introducir contraseñas en el repositorio**.
+   La configuración incluida usa autenticación integrada de Windows. Para una
+   configuración local no versionada, copia el archivo como
+   `config/database.local.yml` y úsalo únicamente con scripts que acepten una
+   ruta explícita.
+2. Antes de ejecutar SQL, comprueba manualmente servidor, base, identidad,
+   permisos de lectura y ausencia de permisos de escritura. Puedes ejecutar
+   `python main_db.py test`; esta operación sí contacta la base configurada.
+3. Solo después, edita `config/sql_policy.yml`: enumera nombres
+   `esquema.objeto` verificados en `allowed_objects` y cambia `enabled` a
+   `true`. No uses el contexto recuperado como autorización.
+4. `schema/business.yml` es el contrato de métricas mantenido por el usuario.
+   No se regenera durante instalación ni arranque. `refresh_schema.py` consulta
+   una base real y debe ejecutarse únicamente de forma consciente.
+
+## Arranque
+
+Preparar y validar un plan (no ejecuta SQL):
 
 ```powershell
-.\.venv\Scripts\python.exe main.py "Ayúdame a definir un reporte de ventas"
-.\.venv\Scripts\python.exe main.py --agent analyst "¿Cómo calcularías el crecimiento mensual?"
-.\.venv\Scripts\python.exe main.py --pipeline "Diseña un análisis de ventas por categoría"
-ollama ps
+.\.venv\Scripts\python.exe main.py "Ventas netas por producto en 1997"
 ```
 
-## Responsabilidades
+Ejecutar desde CLI requiere además la política habilitada y confirmación
+explícita mediante `--execute`:
 
-| Archivo | Función |
-|---|---|
-| main.py | Mensaje inicial, CLI y operación/secuencia de agentes |
-| core/ollama_client.py | Conexión HTTP reutilizable, llamada, errores, tiempos y tokens |
-| core/config.py | Lectura YAML, validación y variables de entorno |
-| config/agents.yml | Modelo, parámetros y prompts por agente |
-| agents/base.py | Composición de prompt y skills; comparte el cliente |
-| skills/*.md | Procedimientos reutilizables en lenguaje natural |
-| tools/ | Contrato previsto para funciones ejecutables; aún no implementadas |
-| tests/test_client.py | Pruebas aisladas del contrato HTTP y fallos |
+```powershell
+.\.venv\Scripts\python.exe main.py --execute "Ventas netas por producto en 1997"
+```
 
-Edita `USER_MESSAGE` en main.py o pasa el mensaje por terminal. Edita los prompts en YAML.
-Añade un agente bajo `agents` y selecciónalo con `--agent nombre`, sin tocar el cliente.
-Las skills son archivos Markdown dentro de skills/, referenciados sin extensión en YAML.
-Los logs no incluyen prompts ni respuestas. Salida textual: stdout; logs: stderr.
-No se persiste historial entre ejecuciones. Cada agente recibe su propio prompt y mensaje.
+La UI siempre muestra primero el plan y ofrece un botón separado para ejecutar
+exactamente el plan mostrado, que vuelve a pasar por el validador:
 
-`--pipeline` es una secuencia fija de tres llamadas, no un router autónomo. Comparte el modelo
-sin cargar una copia por agente. Los resultados intermedios son borradores, no verificaciones.
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run ui/app.py
+```
 
-## Alcance real
+Los modos heredados, solo LLM, siguen disponibles con `--agent` y `--pipeline`;
+no admiten `--execute`.
 
-Esta versión consulta el LLM. **Todavía no se conecta a bases de datos ni genera reportes/gráficas.**
-Los prompts lo declaran expresamente. Es la base de conexión y organización sobre la cual
-implementar esos módulos cuando se conozcan motor, esquema y política de acceso.
-No hay herramientas anunciadas al modelo; si devuelve una llamada a herramienta inesperada,
-el cliente falla explícitamente en lugar de fingir ejecución.
-
-## Configuración
-
-`OLLAMA_BASE_URL` y `OLLAMA_MODEL` sobreescriben YAML. No guardar credenciales en YAML.
-La API está en localhost por defecto. Para acceso remoto se requiere una capa de autenticación.
-No se configura `think` porque se usa la variante Instruct.
-`num_ctx=8192` es un punto de partida; incluye instrucciones, entrada y salida.
-`num_predict=2048` limita generación; un aviso señala respuestas truncadas.
-Los prompts largos pueden superar el contexto: esta base no implementa contabilidad exacta,
-resúmenes ni RAG. El pipeline puede necesitar más contexto para borradores extensos.
-Con 8 GB de VRAM, CPU/GPU combinado es esperado. No hay garantía de tokens/s sin medir tu equipo.
-
-No se reintentan automáticamente POST fallidos: un timeout no prueba que la generación se detuvo.
-
-## Validación
+## Pruebas y alcance de la validación
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m compileall agents core tools ui tests
 ```
 
-Las pruebas usan transporte simulado. La inferencia real se valida en tu PC con Ollama instalado.
+**Automáticas y simuladas (no acceden a una base ni a Ollama):** contrato HTTP y
+fallos de Ollama; recuperación; pregunta ambigua/contexto insuficiente; plan y
+rechazo de política; cero filas; truncamiento; ejecución con cliente falso;
+respuesta; exportación y gráficas. La regresión de 1997 utiliza un fixture
+sintético identificado como tal y compara el flujo contra otra consulta de
+referencia: ambas usan `Order Details.UnitPrice`, descuento de línea y
+`Orders.OrderDate`; no afirma ni inventa resultados de Northwind.
 
-## Próximo módulo
+**Pendientes de validación local real:** disponibilidad/rendimiento del modelo,
+driver ODBC, conectividad, catálogo de la instancia, permisos efectivos de la
+cuenta de solo lectura, objetos que se autorizarán y resultados reales de
+Northwind. No se ejecuta SQL generado contra una base real en la suite.
 
-Conocer motor (PostgreSQL, SQL Server, MySQL, SQLite...), tablas/vistas disponibles y métricas.
-Implementar primero catálogo y consulta de solo lectura, después reportes/gráficas y por último
-routing y UI en lenguaje natural. La seguridad se aplica en las herramientas y en la BD,
-no únicamente mediante instrucciones al LLM.
+## Flujo integrado
 
-Referencia API: https://docs.ollama.com/api/chat
+`pregunta → recuperación → plan → validación → ejecución → explicación → exportación`
+
+La ejecución falla de forma cerrada si la política está deshabilitada, el
+objeto no está permitido o el AST no cumple los límites. Los resultados se
+acotan, indican truncamiento y los exportadores trabajan solo con las filas ya
+obtenidas; nunca vuelven a consultar la base.
