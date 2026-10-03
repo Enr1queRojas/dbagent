@@ -8,7 +8,9 @@ probar aunque esos módulos todavía no estén disponibles.
 ## Contrato
 
 `handle()` recibe un mapa con `question`, `execute` (booleano, `false` por
-defecto) y opcionalmente `history` (lista). Devuelve siempre `Response` con:
+defecto) y opcionalmente `history` (lista). Al confirmar una vista previa, la UI
+también devuelve el `prepared_plan` mostrado: se valida otra vez sin regenerarlo.
+Devuelve siempre `Response` con:
 `status`, `question`, `answer`, `clarification`, `plan`, `data`, `warnings`,
 `error` y `executed`. Los estados posibles son `clarification`, `blocked`,
 `planned`, `completed` y `error`.

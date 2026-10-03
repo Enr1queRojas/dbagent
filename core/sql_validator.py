@@ -25,6 +25,8 @@ class ValidationResult:
 
     allowed: bool
     errors: tuple[str, ...]
+    sql: str | None = None
+    params: tuple[Any, ...] = ()
 
     @property
     def explanation(self) -> str:
@@ -84,6 +86,8 @@ class SQLValidator:
             return self._deny("La validación SQL está deshabilitada; habilítala y configura allowed_objects explícitamente.")
         if not self.allowed_objects:
             return self._deny("La política no autoriza ningún objeto (allowed_objects está vacío).")
+        if hasattr(plan, "model_dump"):
+            plan = plan.model_dump(exclude_none=True)
         if not isinstance(plan, dict) or set(plan) != {"sql", "params"}:
             return self._deny("El plan debe contener únicamente sql y params.")
         sql, params = plan["sql"], plan["params"]
@@ -150,7 +154,8 @@ class SQLValidator:
                         quote_identifiers=False, identify=False)
             except (OptimizeError, ValueError, TypeError, KeyError) as exc:
                 errors.append(f"No se pudieron resolver columnas y ámbitos: {exc}.")
-        return self._deny(*dict.fromkeys(errors)) if errors else ValidationResult(True, ())
+        return (self._deny(*dict.fromkeys(errors)) if errors else
+                ValidationResult(True, (), sql, tuple(params)))
 
     def _metadata(self, objects: dict[str, Any]) -> dict[tuple[str, str], tuple[str, set[str]]]:
         result = {}

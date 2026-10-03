@@ -46,6 +46,17 @@ def _get(value: Any, *names: str, default: Any = None) -> Any:
     return default
 
 
+def _serializable(value: Any) -> Any:
+    """Preserve typed internal contracts while exposing JSON/UI-friendly values."""
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if hasattr(value, "to_dict"):
+        return value.to_dict()
+    if hasattr(value, "__dataclass_fields__"):
+        return asdict(value)
+    return value
+
+
 def _warnings(value: Any) -> list[str]:
     warnings = _get(value, "warnings", default=[]) or []
     return [str(item) for item in warnings]
@@ -135,7 +146,11 @@ class Application:
                     warnings=warnings)
 
             context = _get(retrieval, "context", default=retrieval)
-            plan = self.sql_agent.generate(question, context, history=history or None)
+            plan = request.get("prepared_plan") if execute else None
+            if plan is None:
+                plan = self.sql_agent.generate(question, context, history=history or None)
+            elif not isinstance(plan, dict):
+                return Response("error", question, error="El plan preparado debe ser un mapa.")
             warnings.extend(_warnings(plan))
             needs_clarification = bool(_get(plan, "requires_clarification", "needs_clarification", default=False))
             clarification = _get(plan, "clarification", "clarification_question")
@@ -145,22 +160,23 @@ class Application:
 
             validation = self.validator.validate(plan, context)
             warnings.extend(_warnings(validation))
-            approved = bool(_get(validation, "approved", "valid", "is_valid", default=False))
+            approved = bool(_get(validation, "allowed", "approved", "valid", "is_valid", default=False))
             if not approved:
-                reason = _get(validation, "public_reason", "reason", "message")
+                reason = _get(validation, "public_reason", "reason", "message", "explanation")
                 return Response("blocked", question,
                     answer=str(reason or "La consulta propuesta fue rechazada por la validación."),
-                    plan=plan, warnings=warnings)
+                    plan=_serializable(plan), warnings=warnings)
             if not execute:
-                return Response("planned", question, plan=plan, warnings=warnings)
+                return Response("planned", question, plan=_serializable(plan), warnings=warnings)
 
             data = self.query_service.execute(validation)
             warnings.extend(_warnings(data))
             if bool(_get(data, "truncated", "is_truncated", default=False)):
                 warnings.append("Los resultados fueron truncados por el límite configurado.")
-            answer = self.answer_agent.generate(question, plan, data)
-            return Response("completed", question, answer=str(answer), plan=plan,
-                            data=data, warnings=warnings, executed=True)
+            plan_data, query_data = _serializable(plan), _serializable(data)
+            answer = self.answer_agent.generate(question, plan_data, query_data)
+            return Response("completed", question, answer=str(answer), plan=plan_data,
+                            data=query_data, warnings=warnings, executed=True)
         except Exception as exc:  # never log exception text: it may contain SQL or credentials
             LOGGER.error("Application workflow failed; exception_type=%s", type(exc).__name__)
             return Response("error", question, warnings=warnings,

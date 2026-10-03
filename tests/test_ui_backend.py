@@ -74,6 +74,13 @@ def test_execution_only_occurs_on_explicit_second_call():
     assert [request["execute"] for request in fake.requests] == [False, True]
 
 
+def test_execution_reuses_the_reviewed_plan():
+    fake = FakeBackend({"status": "completed"})
+    plan = {"sql": "SELECT 1 AS value", "params": []}
+    ask(fake, "q", [], execute=True, prepared_plan=plan)
+    assert fake.requests[0]["prepared_plan"] is plan
+
+
 @dataclass
 class Response:
     status: str
@@ -91,7 +98,7 @@ def test_dataclass_results_and_optional_artifact_fields():
 def test_optional_report_tools_can_be_present(monkeypatch):
     module = ModuleType("tools.report_tools")
     sentinel = object()
-    module.ReportTools = lambda: sentinel
+    module.ReportTools = lambda output_dir=None: sentinel
     monkeypatch.setitem(sys.modules, "tools.report_tools", module)
     assert load_report_tools() is sentinel
 

@@ -1,5 +1,5 @@
 """Execution boundary for SQL that has already passed validation."""
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Sequence
 
 from core.database_client import DatabaseClient, QueryResult
@@ -38,9 +38,13 @@ class QueryService:
     def __init__(self, db: DatabaseClient | None = None):
         self.db = db if db is not None else DatabaseClient.from_yaml()
 
-    def execute(self, validation: dict[str, Any]) -> QueryData:
+    def execute(self, validation: Any) -> QueryData:
+        if is_dataclass(validation):
+            validation = asdict(validation)
+        elif hasattr(validation, "model_dump"):
+            validation = validation.model_dump()
         if not isinstance(validation, dict):
-            raise ValueError("La validación debe ser un diccionario")
+            raise ValueError("La validación debe ser un mapa o dataclass")
         if validation.get("allowed") is not True:
             raise PermissionError("La consulta no fue autorizada por el validador")
         sql = validation.get("sql")
