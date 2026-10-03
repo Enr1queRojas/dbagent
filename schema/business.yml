@@ -1,8 +1,8 @@
 format_version: 1
 source:
   database_name: Northwind
-  server_name: .\SQLEXPRESS
-  login_name: Windows integrated authentication
+  server_name: 'DESKTOP-TSIHM37\SQLEXPRESS'
+  login_name: 'DESKTOP-TSIHM37\Usuario'
 
 # Capa semántica de Northwind. Las expresiones usan los importes almacenados en
 # [Order Details]; no convierten monedas ni imputan impuestos o costes de envío.
@@ -12,21 +12,21 @@ metrics:
     expression: SUM([Order Details].[UnitPrice] * [Order Details].[Quantity])
     format: currency
     grain: Una línea de pedido.
-    source_objects: ['[dbo].[Order Details]']
+    objects: ['[dbo].[Order Details]']
     dimensions: [order_date, customer, employee, product, category, supplier, ship_country]
   discount_amount:
     description: Importe concedido como descuento en las líneas de pedido.
     expression: SUM([Order Details].[UnitPrice] * [Order Details].[Quantity] * [Order Details].[Discount])
     format: currency
     grain: Una línea de pedido.
-    source_objects: ['[dbo].[Order Details]']
+    objects: ['[dbo].[Order Details]']
     caveats: Discount es una proporción entre 0 y 1, no un importe.
   net_sales:
     description: Venta neta después del descuento de línea, sin flete, impuestos ni devoluciones.
     expression: SUM([Order Details].[UnitPrice] * [Order Details].[Quantity] * (1 - [Order Details].[Discount]))
     format: currency
     grain: Una línea de pedido.
-    source_objects: ['[dbo].[Order Details]', '[dbo].[Orders]']
+    objects: ['[dbo].[Order Details]', '[dbo].[Orders]']
     date_field: '[dbo].[Orders].[OrderDate]'
     caveats: Usa el precio histórico de la línea y no Products.UnitPrice, que es el precio actual.
   units_sold:
@@ -34,56 +34,62 @@ metrics:
     expression: SUM([Order Details].[Quantity])
     format: integer
     grain: Una línea de pedido.
-    source_objects: ['[dbo].[Order Details]']
+    objects: ['[dbo].[Order Details]']
   order_count:
     description: Cantidad de pedidos únicos.
     expression: COUNT(DISTINCT [Orders].[OrderID])
     format: integer
     grain: Un pedido.
-    source_objects: ['[dbo].[Orders]']
+    objects: ['[dbo].[Orders]']
   average_order_value:
     description: Venta neta promedio por pedido.
     expression: net_sales / NULLIF(order_count, 0)
     format: currency
     grain: Un pedido.
-    source_objects: ['[dbo].[Orders]', '[dbo].[Order Details]']
+    objects: ['[dbo].[Orders]', '[dbo].[Order Details]']
   average_discount_rate:
     description: Proporción de descuento ponderada por el importe bruto de cada línea.
     expression: discount_amount / NULLIF(gross_sales, 0)
     format: percentage
     grain: Una línea de pedido.
-    source_objects: ['[dbo].[Order Details]']
+    objects: ['[dbo].[Order Details]']
   freight_amount:
     description: Flete registrado en los pedidos; no forma parte de net_sales.
     expression: SUM([Orders].[Freight])
     format: currency
     grain: Un pedido.
-    source_objects: ['[dbo].[Orders]']
+    objects: ['[dbo].[Orders]']
+    caveats: >
+      Agregar sobre una fila por OrderID. Unir Orders con Order Details
+      puede repetir el flete por cada línea y sobreestimar el total.
+      No usar SUM(DISTINCT Freight), porque distintos pedidos pueden
+      tener el mismo importe. Para distribuir flete por producto se
+      necesita una regla explícita de asignación.    
   shipped_order_count:
     description: Cantidad de pedidos con fecha de envío informada.
     expression: COUNT(DISTINCT CASE WHEN [Orders].[ShippedDate] IS NOT NULL THEN [Orders].[OrderID] END)
     format: integer
     grain: Un pedido.
-    source_objects: ['[dbo].[Orders]']
+    objects: ['[dbo].[Orders]']
   on_time_shipment_rate:
     description: Porcentaje de pedidos enviados en la fecha requerida o antes.
     expression: SUM(CASE WHEN [Orders].[ShippedDate] <= [Orders].[RequiredDate] THEN 1.0 ELSE 0 END) / NULLIF(SUM(CASE WHEN [Orders].[ShippedDate] IS NOT NULL THEN 1.0 ELSE 0 END), 0)
     format: percentage
     grain: Un pedido enviado.
-    source_objects: ['[dbo].[Orders]']
+    objects: ['[dbo].[Orders]']
     caveats: Excluye pedidos todavía no enviados del denominador.
   active_product_count:
     description: Cantidad de productos que no están descontinuados.
     expression: COUNT(DISTINCT CASE WHEN [Products].[Discontinued] = 0 THEN [Products].[ProductID] END)
     format: integer
     grain: Un producto.
-    source_objects: ['[dbo].[Products]']
+    objects: ['[dbo].[Products]']
   inventory_units:
     description: Unidades actualmente registradas en inventario.
     expression: SUM([Products].[UnitsInStock])
     format: integer
     grain: Un producto.
-    source_objects: ['[dbo].[Products]']
+    objects: ['[dbo].[Products]']
 
 objects:
   '[dbo].[Categories]':
@@ -225,24 +231,24 @@ objects:
     grain: Una fila por producto por encima del promedio.
     keywords: [producto, precio, promedio]
     notes: Compara precios actuales, no precios históricos de venta.
-  '[dbo].[Products by Category]':
-    description: Productos vigentes enriquecidos con categoría, proveedor e inventario.
-    role: reporting_view
-    grain: Una fila por producto no descontinuado.
-    keywords: [producto, categoría, proveedor, inventario]
-    notes: Vista derivada del catálogo actual; no contiene ventas.
   '[dbo].[Quarterly Orders]':
-    description: Combinaciones de cliente y pedido utilizadas para análisis trimestral de pedidos de 1997.
+    description: Vista que expone identificador, compañía, ciudad y país de clientes.
     role: reporting_view
-    grain: Una fila por pedido del periodo definido en la vista.
-    keywords: [pedido, cliente, trimestre, 1997]
-    notes: Periodo fijo en la definición original de Northwind.
+    grain: Pendiente de verificar en la definición SQL de la vista.
+    keywords: [cliente, compañía, ciudad, país, trimestre]
+    notes: No expone OrderID ni fechas. Verificar filtros temporales y deduplicación antes de usarla para análisis trimestral.
   '[dbo].[Sales by Category]':
-    description: Venta neta por categoría y producto para un año indicado por la lógica de la vista.
+    description: Vista con categoría, nombre de producto e importe agregado ProductSales.
     role: aggregate_view
-    grain: Una fila por categoría, producto y año de pedido con ventas.
-    keywords: [ventas, categoría, producto, año]
-    notes: ProductSales ya está agregado; revisar el campo OrdYear antes de filtrar el periodo.
+    grain: Pendiente de confirmar mediante el GROUP BY de la definición SQL.
+    keywords: [ventas, categoría, producto]
+    notes: No expone OrdYear ni otra columna de fecha. Verificar el periodo y la fórmula de ProductSales en la definición SQL; no asumir que permite filtrar cualquier año.
+  '[dbo].[Products by Category]':
+    description: Vista de productos con categoría, presentación, inventario y estado de descontinuación.
+    role: reporting_view
+    grain: Pendiente de verificar en la definición SQL de la vista.
+    keywords: [producto, categoría, inventario, presentación]
+    notes: Expone CategoryName, ProductName, QuantityPerUnit, UnitsInStock y Discontinued. No expone proveedor ni ventas. Verificar si filtra productos descontinuados.
   '[dbo].[Sales Totals by Amount]':
     description: Pedidos con subtotal superior al umbral definido por la vista para un periodo concreto.
     role: reporting_view

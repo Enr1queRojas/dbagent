@@ -1,0 +1,24 @@
+top_k: 4
+max_objects: 8
+max_join_hops: 3
+# Caracteres, NO tokens. Ajusta según el contexto disponible del modelo.
+max_context_chars: 16000
+# Ayudas léxicas español/inglés; edita según el vocabulario de tu negocio.
+synonyms:
+  - [producto, productos, product, products, articulo, articulos]
+  - [cliente, clientes, customer, customers]
+  - [pedido, pedidos, orden, ordenes, order, orders]
+  - [venta, ventas, vendido, vendidos, sales, order, orders, details]
+  - [categoria, categorias, category, categories]
+  - [proveedor, proveedores, supplier, suppliers]
+  - [empleado, empleados, employee, employees]
+  - [precio, precios, price]
+  - [cantidad, cantidades, unidades, quantity]
+  - [descuento, descuentos, discount]
+  - [fecha, fechas, date]
+  - [envio, envios, transporte, shipper, shippers, freight]
+  - [existencia, existencias, inventario, stock]
+  - [territorio, territorios, territory, territories]
+
+# Favorece tablas base para evitar que vistas con nombres largos dominen el ranking.
+base_table_boost: 2.0

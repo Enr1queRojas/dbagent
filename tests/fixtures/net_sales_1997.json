@@ -1,0 +1,11 @@
+{
+  "note": "Datos sintéticos mínimos para verificar la fórmula; no son resultados de Northwind.",
+  "products": [[1, "Alpha"], [2, "Beta"], [3, "Gamma"]],
+  "orders": [[101, "1997-01-10"], [102, "1997-12-31"], [103, "1998-01-01"]],
+  "order_details": [
+    [101, 1, "10.00", 2, "0.10"],
+    [102, 1, "8.00", 1, "0.00"],
+    [101, 2, "20.00", 1, "0.50"],
+    [103, 3, "999.00", 1, "0.00"]
+  ]
+}

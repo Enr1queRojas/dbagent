@@ -1,0 +1,6 @@
+reports:
+  output_dir: ../reports
+  max_export_rows: 10000
+  max_chart_points: 2000
+  max_columns: 200
+  max_cell_chars: 32767
